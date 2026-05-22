@@ -1,14 +1,10 @@
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { getDbUser } from "@/lib/auth";
 import { NextRequest } from "next/server";
 
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
-
-  const dbUser = await prisma.user.findUnique({ where: { supabaseId: user.id } });
-  if (!dbUser) return Response.json({ error: "User not found" }, { status: 404 });
+  const dbUser = await getDbUser();
+  if (!dbUser) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
   const { teamName, maxTeams, scoringType } = await request.json();
 

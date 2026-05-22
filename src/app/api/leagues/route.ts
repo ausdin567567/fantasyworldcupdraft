@@ -1,14 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { getDbUser } from "@/lib/auth";
 import { generateInviteCode } from "@/lib/utils";
 import { NextRequest } from "next/server";
-
-async function getDbUser() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  return prisma.user.findUnique({ where: { supabaseId: user.id } });
-}
 
 export async function POST(request: NextRequest) {
   const dbUser = await getDbUser();

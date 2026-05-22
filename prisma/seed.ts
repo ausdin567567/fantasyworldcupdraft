@@ -1,6 +1,15 @@
-import { PrismaClient, Position } from "@prisma/client";
+import { config } from "dotenv";
+config({ path: ".env.local" });
+config();
 
-const prisma = new PrismaClient();
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+
+type Position = "GK" | "DEF" | "MID" | "FWD";
+
+const connectionString = process.env.DIRECT_URL || process.env.DATABASE_URL!;
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
 
 // ─── National Teams ───────────────────────────────────────────────────────────
 
