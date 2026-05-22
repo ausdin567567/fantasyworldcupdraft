@@ -1,0 +1,442 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Position {
+  GK
+  DEF
+  MID
+  FWD
+}
+
+enum ScoringType {
+  CLASSIC
+  HEAD_TO_HEAD
+}
+
+enum LeagueType {
+  PRIVATE
+  PUBLIC
+}
+
+enum TradeMode {
+  NONE
+  ALL
+  ADMIN_APPROVAL
+  MANAGER_APPROVAL
+}
+
+enum LeagueStatus {
+  PENDING
+  DRAFT_SCHEDULED
+  DRAFTING
+  ACTIVE
+  COMPLETE
+}
+
+enum DraftStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PlayerStatus {
+  OWNED
+  AVAILABLE
+  LOCKED
+}
+
+enum GameweekStatus {
+  UPCOMING
+  ACTIVE
+  COMPLETE
+}
+
+enum RoundName {
+  GROUP_MD1
+  GROUP_MD2
+  GROUP_MD3
+  ROUND_OF_32
+  ROUND_OF_16
+  QUARTERFINAL
+  SEMIFINAL
+  THIRD_PLACE_FINAL
+}
+
+enum WaiverStatus {
+  PENDING
+  PROCESSED
+  REJECTED
+  CANCELLED
+}
+
+enum TradeStatus {
+  PROPOSED
+  WITHDRAWN
+  REJECTED
+  ACCEPTED
+  INVALID
+  VETOED
+  EXPIRED
+  PROCESSED
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+}
+
+enum AcquisitionType {
+  DRAFT
+  WAIVER
+  FREE_AGENCY
+  TRADE
+}
+
+// ─── Core Models ──────────────────────────────────────────────────────────────
+
+model User {
+  id         String   @id @default(cuid())
+  supabaseId String   @unique
+  email      String   @unique
+  username   String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  teams          Team[]
+  adminLeagues   League[]     @relation("LeagueAdmin")
+  watchlist      Watchlist[]
+  tradeProposals TradeOffer[] @relation("TradeProposer")
+
+  @@map("users")
+}
+
+model League {
+  id               String       @id @default(cuid())
+  name             String
+  type             LeagueType
+  scoringType      ScoringType
+  status           LeagueStatus @default(PENDING)
+  tradeMode        TradeMode    @default(ALL)
+  maxTeams         Int          @default(8)
+  minTeams         Int          @default(2)
+  pickTimerSeconds Int          @default(90)
+  inviteCode       String?      @unique
+  adminId          String
+  admin            User         @relation("LeagueAdmin", fields: [adminId], references: [id])
+  pushbackCount    Int          @default(0)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  teams      Team[]
+  drafts     Draft[]
+  h2hMatches H2HMatch[]
+
+  @@map("leagues")
+}
+
+model Team {
+  id             String   @id @default(cuid())
+  name           String
+  userId         String
+  leagueId       String
+  user           User     @relation(fields: [userId], references: [id])
+  league         League   @relation(fields: [leagueId], references: [id])
+  draftPosition  Int?
+  waiverPosition Int?
+  totalPoints    Int      @default(0)
+  h2hPoints      Int      @default(0)
+  h2hWins        Int      @default(0)
+  h2hDraws       Int      @default(0)
+  h2hLosses      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  players            TeamPlayer[]
+  gameweekSelections GameweekSelection[]
+  waiverRequests     WaiverRequest[]
+  proposedTrades     TradeOffer[]        @relation("ProposingTeam")
+  receivedTrades     TradeOffer[]        @relation("ReceivingTeam")
+  draftPicks         DraftPick[]
+  gameweekScores     GameweekScore[]
+  h2hHomeMatches     H2HMatch[]          @relation("H2HHomeTeam")
+  h2hAwayMatches     H2HMatch[]          @relation("H2HAwayTeam")
+  watchlist          Watchlist[]
+
+  @@unique([userId, leagueId])
+  @@map("teams")
+}
+
+// ─── World Cup Data ───────────────────────────────────────────────────────────
+
+model NationalTeam {
+  code       String  @id
+  name       String
+  group      String?
+  flagUrl    String?
+  eliminated Boolean @default(false)
+
+  players     Player[]
+  homeMatches Match[]  @relation("HomeTeam")
+  awayMatches Match[]  @relation("AwayTeam")
+
+  @@map("national_teams")
+}
+
+model Player {
+  id            String       @id @default(cuid())
+  apiFootballId Int?         @unique
+  name          String
+  countryCode   String
+  country       NationalTeam @relation(fields: [countryCode], references: [code])
+  position      Position
+  clubTeam      String?
+  imageUrl      String?
+  status        PlayerStatus @default(AVAILABLE)
+  isLocked      Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  teamPlayers        TeamPlayer[]
+  watchlist          Watchlist[]
+  draftPicks         DraftPick[]
+  matchStats         PlayerMatchStat[]
+  gameweekSelections GameweekSelection[]
+  waiverIn           WaiverRequest[]     @relation("WaiverPlayerIn")
+  waiverOut          WaiverRequest[]     @relation("WaiverPlayerOut")
+
+  @@map("players")
+}
+
+model Gameweek {
+  id             String         @id @default(cuid())
+  round          RoundName      @unique
+  name           String
+  startDate      DateTime
+  endDate        DateTime
+  deadline       DateTime
+  waiverDeadline DateTime
+  status         GameweekStatus @default(UPCOMING)
+
+  matches            Match[]
+  waiverRequests     WaiverRequest[]
+  gameweekScores     GameweekScore[]
+  gameweekSelections GameweekSelection[]
+  h2hMatches         H2HMatch[]
+  tradeOffers        TradeOffer[]
+
+  @@map("gameweeks")
+}
+
+model Match {
+  id           String       @id @default(cuid())
+  gameweekId   String
+  gameweek     Gameweek     @relation(fields: [gameweekId], references: [id])
+  homeTeamCode String
+  awayTeamCode String
+  homeTeam     NationalTeam @relation("HomeTeam", fields: [homeTeamCode], references: [code])
+  awayTeam     NationalTeam @relation("AwayTeam", fields: [awayTeamCode], references: [code])
+  kickoffTime  DateTime
+  homeScore    Int?
+  awayScore    Int?
+  status       MatchStatus  @default(SCHEDULED)
+  apiMatchId   Int?         @unique
+
+  playerStats PlayerMatchStat[]
+
+  @@map("matches")
+}
+
+model PlayerMatchStat {
+  id            String  @id @default(cuid())
+  playerId      String
+  matchId       String
+  player        Player  @relation(fields: [playerId], references: [id])
+  match         Match   @relation(fields: [matchId], references: [id])
+  minutesPlayed Int     @default(0)
+  goals         Int     @default(0)
+  assists       Int     @default(0)
+  yellowCards   Int     @default(0)
+  redCards      Int     @default(0)
+  saves         Int     @default(0)
+  cleanSheet    Boolean @default(false)
+  penaltySaves  Int     @default(0)
+  penaltyMisses Int     @default(0)
+  ownGoals      Int     @default(0)
+  goalsConceded Int     @default(0)
+  clearances    Int     @default(0)
+  blocks        Int     @default(0)
+  interceptions Int     @default(0)
+  tackles       Int     @default(0)
+  recoveries    Int     @default(0)
+  bonusPoints   Int     @default(0)
+  totalPoints   Int     @default(0)
+  bpsScore      Int     @default(0)
+  isFinalized   Boolean @default(false)
+
+  @@unique([playerId, matchId])
+  @@map("player_match_stats")
+}
+
+// ─── Draft ────────────────────────────────────────────────────────────────────
+
+model Draft {
+  id           String      @id @default(cuid())
+  leagueId     String
+  league       League      @relation(fields: [leagueId], references: [id])
+  scheduledAt  DateTime
+  startedAt    DateTime?
+  completedAt  DateTime?
+  status       DraftStatus @default(SCHEDULED)
+  currentRound Int         @default(1)
+  currentPick  Int         @default(0)
+  draftOrder   Json
+  createdAt    DateTime    @default(now())
+
+  picks DraftPick[]
+
+  @@map("drafts")
+}
+
+model DraftPick {
+  id       String   @id @default(cuid())
+  draftId  String
+  draft    Draft    @relation(fields: [draftId], references: [id])
+  teamId   String
+  team     Team     @relation(fields: [teamId], references: [id])
+  playerId String
+  player   Player   @relation(fields: [playerId], references: [id])
+  round    Int
+  pick     Int
+  pickedAt DateTime @default(now())
+
+  @@unique([draftId, round, pick])
+  @@map("draft_picks")
+}
+
+model Watchlist {
+  id       String @id @default(cuid())
+  teamId   String
+  team     Team   @relation(fields: [teamId], references: [id])
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id])
+  priority Int
+
+  @@unique([teamId, playerId])
+  @@map("watchlists")
+}
+
+// ─── Squad Management ─────────────────────────────────────────────────────────
+
+model TeamPlayer {
+  id              String          @id @default(cuid())
+  teamId          String
+  team            Team            @relation(fields: [teamId], references: [id])
+  playerId        String
+  player          Player          @relation(fields: [playerId], references: [id])
+  acquisitionType AcquisitionType
+  acquiredAt      DateTime        @default(now())
+  droppedAt       DateTime?
+
+  @@map("team_players")
+}
+
+model GameweekSelection {
+  id            String   @id @default(cuid())
+  teamId        String
+  team          Team     @relation(fields: [teamId], references: [id])
+  gameweekId    String
+  gameweek      Gameweek @relation(fields: [gameweekId], references: [id])
+  playerId      String
+  player        Player   @relation(fields: [playerId], references: [id])
+  isStarting    Boolean  @default(true)
+  benchPriority Int?
+
+  @@unique([teamId, gameweekId, playerId])
+  @@map("gameweek_selections")
+}
+
+// ─── Scoring ──────────────────────────────────────────────────────────────────
+
+model GameweekScore {
+  id         String   @id @default(cuid())
+  teamId     String
+  team       Team     @relation(fields: [teamId], references: [id])
+  gameweekId String
+  gameweek   Gameweek @relation(fields: [gameweekId], references: [id])
+  points     Int      @default(0)
+  isAverage  Boolean  @default(false)
+
+  @@unique([teamId, gameweekId])
+  @@map("gameweek_scores")
+}
+
+model H2HMatch {
+  id           String   @id @default(cuid())
+  leagueId     String
+  league       League   @relation(fields: [leagueId], references: [id])
+  gameweekId   String
+  gameweek     Gameweek @relation(fields: [gameweekId], references: [id])
+  homeTeamId   String
+  homeTeam     Team     @relation("H2HHomeTeam", fields: [homeTeamId], references: [id])
+  awayTeamId   String
+  awayTeam     Team     @relation("H2HAwayTeam", fields: [awayTeamId], references: [id])
+  homePoints   Int      @default(0)
+  awayPoints   Int      @default(0)
+  homeH2HPts   Int      @default(0)
+  awayH2HPts   Int      @default(0)
+
+  @@unique([leagueId, gameweekId, homeTeamId, awayTeamId])
+  @@map("h2h_matches")
+}
+
+// ─── Transactions ─────────────────────────────────────────────────────────────
+
+model WaiverRequest {
+  id          String       @id @default(cuid())
+  teamId      String
+  team        Team         @relation(fields: [teamId], references: [id])
+  gameweekId  String
+  gameweek    Gameweek     @relation(fields: [gameweekId], references: [id])
+  playerInId  String
+  playerIn    Player       @relation("WaiverPlayerIn", fields: [playerInId], references: [id])
+  playerOutId String
+  playerOut   Player       @relation("WaiverPlayerOut", fields: [playerOutId], references: [id])
+  priority    Int
+  status      WaiverStatus @default(PENDING)
+  createdAt   DateTime     @default(now())
+  processedAt DateTime?
+
+  @@map("waiver_requests")
+}
+
+model TradeOffer {
+  id              String      @id @default(cuid())
+  proposingTeamId String
+  proposingTeam   Team        @relation("ProposingTeam", fields: [proposingTeamId], references: [id])
+  receivingTeamId String
+  receivingTeam   Team        @relation("ReceivingTeam", fields: [receivingTeamId], references: [id])
+  gameweekId      String
+  gameweek        Gameweek    @relation(fields: [gameweekId], references: [id])
+  status          TradeStatus @default(PROPOSED)
+  proposedById    String
+  proposedBy      User        @relation("TradeProposer", fields: [proposedById], references: [id])
+  vetoCount       Int         @default(0)
+  offeredPlayerIds  Json
+  requestedPlayerIds Json
+  createdAt       DateTime    @default(now())
+  expiresAt       DateTime
+  processedAt     DateTime?
+
+  @@map("trade_offers")
+}
