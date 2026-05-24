@@ -24,6 +24,7 @@ export async function GET(
       },
       watchlist: {
         orderBy: { priority: "asc" },
+        include: { player: true },
       },
     },
   });
@@ -35,6 +36,10 @@ export async function GET(
     teamName: team.name,
     pickTimerSeconds: team.league.pickTimerSeconds,
     players: team.players.map((tp) => tp.player),
-    watchlist: team.watchlist.map((w) => w.playerId),
+    watchlist: team.watchlist.map((w) => ({
+      playerId: w.playerId,
+      priority: w.priority,
+      player: w.player,
+    })),
   });
 }

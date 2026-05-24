@@ -27,6 +27,12 @@ type Team = {
   user: { username: string };
 };
 
+type WatchlistEntry = {
+  playerId: string;
+  priority: number;
+  player: Player;
+};
+
 type Draft = {
   id: string;
   status: string;
@@ -101,7 +107,7 @@ function ScheduleForm({ leagueId, onScheduled }: { leagueId: string; onScheduled
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setError(null);
@@ -132,7 +138,7 @@ function ScheduleForm({ leagueId, onScheduled }: { leagueId: string; onScheduled
           min={minDateTime}
           value={dateTime}
           onChange={(e) => setDateTime(e.target.value)}
-          className="w-full px-4 py-2.5 bg-white/10 border border-white/20 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 [color-scheme:dark]"
+          className="w-full px-4 py-2.5 bg-white/10 border border-white/20 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 scheme-dark"
         />
       </div>
       {error && <p className="text-red-300 text-sm">{error}</p>}
@@ -160,7 +166,7 @@ export default function DraftPage({ params }: { params: Promise<{ id: string }> 
   const [pickTimerMax, setPickTimerMax] = useState(90);
   const [search, setSearch] = useState("");
   const [posFilter, setPosFilter] = useState<Position | "ALL">("ALL");
-  const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
   const [loading, setLoading] = useState(false);
 
   const picks = draft?.picks ?? [];
@@ -245,12 +251,48 @@ export default function DraftPage({ params }: { params: Promise<{ id: string }> 
   }
 
   async function toggleWatchlist(playerId: string) {
-    const isIn = watchlist.includes(playerId);
-    setWatchlist(isIn ? watchlist.filter((id) => id !== playerId) : [...watchlist, playerId]);
+    const existing = watchlist.find((w) => w.playerId === playerId);
+    if (existing) {
+      setWatchlist((prev) => prev.filter((w) => w.playerId !== playerId));
+      await fetch(`/api/leagues/${leagueId}/watchlist`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerId }),
+      });
+    } else {
+      const player = players.find((p) => p.id === playerId);
+      if (!player) return;
+      const newEntry: WatchlistEntry = { playerId, priority: watchlist.length + 1, player };
+      setWatchlist((prev) => [...prev, newEntry]);
+      await fetch(`/api/leagues/${leagueId}/watchlist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerId }),
+      });
+    }
+  }
+
+  async function moveWatchlistUp(index: number) {
+    if (index === 0) return;
+    const next = [...watchlist];
+    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+    setWatchlist(next);
     await fetch(`/api/leagues/${leagueId}/watchlist`, {
-      method: isIn ? "DELETE" : "POST",
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ playerId }),
+      body: JSON.stringify({ order: next.map((w) => w.playerId) }),
+    });
+  }
+
+  async function moveWatchlistDown(index: number) {
+    if (index >= watchlist.length - 1) return;
+    const next = [...watchlist];
+    [next[index], next[index + 1]] = [next[index + 1], next[index]];
+    setWatchlist(next);
+    await fetch(`/api/leagues/${leagueId}/watchlist`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: next.map((w) => w.playerId) }),
     });
   }
 
@@ -297,7 +339,7 @@ export default function DraftPage({ params }: { params: Promise<{ id: string }> 
   if (draftStatus === "SCHEDULED" && scheduledAt) {
     return (
       <div className="space-y-6">
-        <div className="bg-gradient-to-br from-green-800 to-green-900 rounded-2xl p-8 text-center shadow-xl">
+        <div className="bg-linear-to-br from-green-800 to-green-900 rounded-2xl p-8 text-center shadow-xl">
           <p className="text-green-300 text-sm font-semibold uppercase tracking-widest mb-2">
             Draft starts in
           </p>
@@ -369,8 +411,8 @@ export default function DraftPage({ params }: { params: Promise<{ id: string }> 
                 <span className="text-sm text-gray-800 flex-1">{player.name}</span>
                 <span className="text-xs text-gray-400">{player.countryCode}</span>
                 <button onClick={() => toggleWatchlist(player.id)}
-                  className={`text-xs px-2 py-1 rounded transition ${watchlist.includes(player.id) ? "bg-yellow-100 text-yellow-700 font-medium" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}>
-                  {watchlist.includes(player.id) ? "★" : "☆"}
+                  className={`text-xs px-2 py-1 rounded transition ${watchlist.some((w) => w.playerId === player.id) ? "bg-yellow-100 text-yellow-700 font-medium" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}>
+                  {watchlist.some((w) => w.playerId === player.id) ? "★" : "☆"}
                 </button>
               </div>
             ))}
@@ -428,8 +470,8 @@ export default function DraftPage({ params }: { params: Promise<{ id: string }> 
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => toggleWatchlist(player.id)}
-                  className={`text-xs px-2 py-1 rounded transition ${watchlist.includes(player.id) ? "bg-yellow-100 text-yellow-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}>
-                  {watchlist.includes(player.id) ? "★" : "☆"}
+                  className={`text-xs px-2 py-1 rounded transition ${watchlist.some((w) => w.playerId === player.id) ? "bg-yellow-100 text-yellow-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}>
+                  {watchlist.some((w) => w.playerId === player.id) ? "★" : "☆"}
                 </button>
                 <button onClick={() => makePick(player.id)} disabled={!isMyTurn || loading}
                   className="text-xs px-3 py-1.5 bg-green-700 text-white rounded-lg disabled:opacity-40 hover:bg-green-800 transition disabled:cursor-not-allowed">
@@ -506,6 +548,57 @@ export default function DraftPage({ params }: { params: Promise<{ id: string }> 
               );
             })}
           </div>
+        </div>
+
+        {/* Watchlist */}
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-semibold text-sm text-gray-800">
+              Watchlist
+              <span className="ml-1.5 text-xs font-normal text-gray-400">
+                ({watchlist.filter((w) => !draftedIds.has(w.playerId)).length})
+              </span>
+            </p>
+            <span className="text-xs text-gray-400">auto-drafts if you miss</span>
+          </div>
+          {watchlist.filter((w) => !draftedIds.has(w.playerId)).length === 0 ? (
+            <p className="text-xs text-gray-400">
+              ☆ Star players in the pool to queue them up
+            </p>
+          ) : (
+            <div className="space-y-1 max-h-40 overflow-y-auto">
+              {watchlist
+                .filter((w) => !draftedIds.has(w.playerId))
+                .map((w, i, arr) => (
+                  <div key={w.playerId} className="flex items-center gap-1.5 text-xs group">
+                    <span className="text-gray-300 w-4 text-right tabular-nums">{i + 1}</span>
+                    <span className={`px-1 py-0.5 rounded font-medium text-[10px] ${POSITION_COLORS[w.player.position]}`}>
+                      {w.player.position}
+                    </span>
+                    <span className="text-gray-800 truncate flex-1 text-xs">{w.player.name}</span>
+                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => moveWatchlistUp(watchlist.findIndex((e) => e.playerId === w.playerId))}
+                        disabled={i === 0}
+                        className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 disabled:opacity-30"
+                        title="Move up"
+                      >↑</button>
+                      <button
+                        onClick={() => moveWatchlistDown(watchlist.findIndex((e) => e.playerId === w.playerId))}
+                        disabled={i === arr.length - 1}
+                        className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 disabled:opacity-30"
+                        title="Move down"
+                      >↓</button>
+                      <button
+                        onClick={() => toggleWatchlist(w.playerId)}
+                        className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-50 text-gray-300 hover:text-red-400"
+                        title="Remove"
+                      >✕</button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -88,6 +88,11 @@ export async function POST(
   });
   await prisma.player.update({ where: { id: playerId }, data: { status: "OWNED" } });
 
+  // Remove the drafted player from every team's watchlist in this league
+  await prisma.watchlist.deleteMany({
+    where: { playerId, team: { leagueId } },
+  });
+
   // Check if draft is complete (15 rounds * team count = total picks)
   const newTotal = totalPicks + 1;
   const totalPicksNeeded = 15 * teamsCount;

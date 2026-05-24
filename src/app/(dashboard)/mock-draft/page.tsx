@@ -183,6 +183,9 @@ export default function MockDraftPage() {
   const currentPickRef = useRef(1);
   // Prevents race condition between timer auto-pick and manual click
   const isPickingRef = useRef(false);
+  // Immediately tracks picked player IDs so concurrent CPU timeouts can't
+  // both grab the same player before the available state update propagates
+  const pickedIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => { teamsRef.current = teams; }, [teams]);
   useEffect(() => { availableRef.current = available; }, [available]);
   useEffect(() => { currentPickRef.current = currentPick; }, [currentPick]);
@@ -199,7 +202,10 @@ export default function MockDraftPage() {
   const doPickRef = useRef<(teamIdx: number, player: Player) => void>(() => {});
   doPickRef.current = (teamIdx: number, player: Player) => {
     if (isPickingRef.current) return;
+    // Guard against duplicate picks before state update propagates
+    if (pickedIdsRef.current.has(player.id)) return;
     isPickingRef.current = true;
+    pickedIdsRef.current.add(player.id);
 
     const team = teamsRef.current[teamIdx];
     if (!team || team.players.length >= ROUNDS) { isPickingRef.current = false; return; }
@@ -229,28 +235,36 @@ export default function MockDraftPage() {
 
     if (!isMe) {
       const t = setTimeout(() => {
-        const pick = autoPick(availableRef.current, teamsRef.current[idx]?.players ?? []);
+        // Filter against pickedIdsRef so two near-simultaneous timeouts
+        // can't both claim the same player before state propagates
+        const avail = availableRef.current.filter((p) => !pickedIdsRef.current.has(p.id));
+        const pick = autoPick(avail, teamsRef.current[idx]?.players ?? []);
         if (pick) doPickRef.current(idx, pick);
       }, CPU_DELAY);
       return () => clearTimeout(t);
     } else {
       setTimer(USER_TIMER);
+      // Use a local variable for the countdown so the auto-pick call never
+      // happens inside a state-updater function (React 18 calls those twice
+      // in dev/StrictMode, which would fire two picks).
+      let timeLeft = USER_TIMER;
       const iv = setInterval(() => {
-        setTimer((prev) => {
-          if (prev <= 1) {
-            clearInterval(iv);
-            const pick = autoPick(availableRef.current, teamsRef.current[myPos - 1]?.players ?? []);
-            if (pick) doPickRef.current(myPos - 1, pick);
-            return USER_TIMER;
-          }
-          return prev - 1;
-        });
+        timeLeft -= 1;
+        setTimer(timeLeft);
+        if (timeLeft <= 0) {
+          clearInterval(iv);
+          const avail = availableRef.current.filter((p) => !pickedIdsRef.current.has(p.id));
+          const pick = autoPick(avail, teamsRef.current[myPos - 1]?.players ?? []);
+          if (pick) doPickRef.current(myPos - 1, pick);
+        }
       }, 1000);
       return () => clearInterval(iv);
     }
   }, [currentPick, step, numTeams, myPos]);
 
   function startDraft() {
+    pickedIdsRef.current = new Set();
+    isPickingRef.current = false;
     const teamList: TeamData[] = Array.from({ length: numTeams }, (_, i) => ({
       name: i === myPos - 1 ? myName : CPU_NAMES[i % CPU_NAMES.length],
       isCPU: i !== myPos - 1,
