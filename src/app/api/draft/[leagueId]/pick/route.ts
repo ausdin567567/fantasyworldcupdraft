@@ -64,6 +64,10 @@ export async function POST(
     return acc;
   }, {} as Record<Position, number>);
 
+  if (teamPicks.length >= 15) {
+    return Response.json({ error: "Squad is already full (15 players)" }, { status: 400 });
+  }
+
   if ((positionCounts[player.position] ?? 0) >= SQUAD_LIMITS[player.position]) {
     return Response.json({ error: `Already have max ${player.position}s` }, { status: 400 });
   }

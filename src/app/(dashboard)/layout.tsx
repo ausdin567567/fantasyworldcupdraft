@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { LogOut, Trophy, Users, Home } from "lucide-react";
+import { LogOut, Trophy, Users, Home, ClipboardList } from "lucide-react";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -22,6 +22,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
             </Link>
             <Link href="/leagues" className="flex items-center gap-1 hover:text-green-200 transition">
               <Users size={16} /> Leagues
+            </Link>
+            <Link href="/mock-draft" className="flex items-center gap-1 hover:text-green-200 transition">
+              <ClipboardList size={16} /> Mock Draft
             </Link>
             <form action="/api/auth/signout" method="POST">
               <button type="submit" className="flex items-center gap-1 hover:text-green-200 transition">
